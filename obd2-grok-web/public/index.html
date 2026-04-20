@@ -9,49 +9,48 @@
   <body>
     <header class="page-header">
       <div class="brand-row">
-        <h1>OBD2S</h1>
-        <span class="brand-chip">S Edition</span>
+        <h1>OBD2<span class="s-badge">S</span></h1>
+        <span class="brand-chip">Upgraded Edition</span>
       </div>
-      <p class="subtitle">
-        Looks like a classic OBD screen. Diagnoses like an upgraded copilot.
-      </p>
+      <p class="subtitle">Classic scanner vibe. S-tier diagnosis clarity.</p>
     </header>
 
     <main class="layout">
       <section class="card controls-card">
-        <h2>Scanner Link</h2>
-        <p class="muted">
-          Browser support required: Web Serial API (Chrome/Edge).
-        </p>
-        <p class="muted">
-          OBD2S robust profile supports clone ELM327 / INPA-style cables (including Taotao
-          B07L498NGZ variants) with baud auto-detect and auto-recovery.
-        </p>
-        <div class="status-strip">
-          <span id="connectionBadge" class="badge badge-off">DISCONNECTED</span>
-          <span id="connectionHint" class="hint-text">Plug cable in, then press Connect Scanner.</span>
+        <div class="panel-title-row">
+          <h2>Scanner S-Link</h2>
+          <span id="connectionBadge" class="status-badge offline">Disconnected</span>
         </div>
+        <p class="muted">Browser support required: Web Serial API (Chrome/Edge).</p>
+        <p class="muted">
+          Robust profile enabled for clone ELM327 / INPA cables (including Taotao B07L498NGZ).
+        </p>
+        <p id="connectionHint" class="muted">Plug cable in, then press Connect Scanner.</p>
         <div class="button-row">
           <button id="connectBtn">Connect Scanner</button>
           <button id="startBtn" disabled>Start Polling</button>
           <button id="stopBtn" disabled>Stop Polling</button>
         </div>
-        <p id="connectionStatus" class="status">Disconnected</p>
+        <p id="connectionStatus" class="status">Disconnected.</p>
         <ul class="scanner-meta">
+          <li><span>Mode:</span> <strong id="scanMode">Idle</strong></li>
           <li><span>Adapter:</span> <strong id="adapterName">Unknown</strong></li>
           <li><span>Baud:</span> <strong id="adapterBaud">--</strong></li>
           <li><span>Protocol:</span> <strong id="adapterProtocol">--</strong></li>
+          <li><span>Last frame:</span> <strong id="liveStamp">--:--:--</strong></li>
         </ul>
-        <h3>2-minute flow</h3>
-        <ol class="flow-list">
-          <li>Connect Scanner</li>
-          <li>Start Polling</li>
+        <ol class="quick-start">
+          <li>Connect scanner</li>
+          <li>Start polling</li>
           <li>Ask OBD2S what to check next</li>
         </ol>
       </section>
 
       <section class="card metrics-card">
-        <h2>Live Telemetry Feed</h2>
+        <div class="panel-title-row">
+          <h2>Live Telemetry</h2>
+          <span class="brand-chip">Pixel utility</span>
+        </div>
         <div class="metrics-grid">
           <div class="metric">
             <span class="metric-label">RPM</span>
@@ -72,41 +71,30 @@
         </div>
         <h3>Detected DTCs</h3>
         <ul id="dtcList" class="dtc-list">
-          <li>No codes yet.</li>
+          <li>No codes detected.</li>
         </ul>
       </section>
 
       <section class="card chat-card">
-        <h2>OBD2S Chat</h2>
-        <p class="muted">
-          The S version: plain-English diagnosis, safe next steps, and proactive follow-up prompts.
-        </p>
-        <div class="quick-prompts">
-          <button type="button" class="quick-btn" data-prompt="Is it safe to drive this right now?">
-            Safe to drive?
-          </button>
-          <button
-            type="button"
-            class="quick-btn"
-            data-prompt="Give me the top 3 checks I should do first with basic tools."
-          >
-            Top 3 checks
-          </button>
-          <button
-            type="button"
-            class="quick-btn"
-            data-prompt="Based on these live readings, what part is most likely failing?"
-          >
-            Most likely failing part
-          </button>
+        <div class="panel-title-row">
+          <h2>OBD2S Chat</h2>
+          <button id="clearChatBtn" type="button">Clear History</button>
         </div>
+        <p class="muted">
+          Replies are short and punchy by default. Ask for “explain” or “detailed” when needed.
+        </p>
+        <p class="muted source-policy">
+          Source policy: OBD2S checks official manuals/guides first. If none found, it may cite
+          forum data and clearly label it as third-party.
+        </p>
+        <div id="quickActions" class="quick-prompts"></div>
         <div id="chatLog" class="chat-log" aria-live="polite"></div>
         <form id="chatForm" class="chat-form">
           <input
             id="chatInput"
             name="chatInput"
             type="text"
-            placeholder="Tell OBD2S what you hear/feel and it will guide your next step..."
+            placeholder="Ask what to do next (e.g. “safe to drive?”)"
             autocomplete="off"
             required
           />

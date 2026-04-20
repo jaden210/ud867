@@ -4,8 +4,9 @@ const stopButton = document.querySelector("#stopBtn");
 const quickActions = document.querySelector("#quickActions");
 const connectionStatus = document.querySelector("#connectionStatus");
 const connectionBadge = document.querySelector("#connectionBadge");
-const scanMode = document.querySelector("#scanMode");
-const liveStamp = document.querySelector("#liveStamp");
+const connectionHint = document.querySelector("#connectionHint");
+const scanModeValue = document.querySelector("#scanMode");
+const liveStampValue = document.querySelector("#liveStamp");
 const adapterNameValue = document.querySelector("#adapterName");
 const adapterBaudValue = document.querySelector("#adapterBaud");
 const adapterProtocolValue = document.querySelector("#adapterProtocol");
@@ -18,6 +19,7 @@ const chatLog = document.querySelector("#chatLog");
 const chatForm = document.querySelector("#chatForm");
 const chatInput = document.querySelector("#chatInput");
 const messageTemplate = document.querySelector("#chatMessageTemplate");
+const clearHistoryButton = document.querySelector("#clearChatBtn");
 
 const PID_COMMANDS = {
   rpm: "010C",
@@ -32,6 +34,15 @@ const ROBUST_SETTINGS = {
   maxReadFailuresBeforeReconnect: 3,
   reconnectBackoffMs: 800,
 };
+const CHAT_STORAGE_KEY = "obd2s-chat-history-v1";
+const MAX_CHAT_MESSAGES = 50;
+
+const QUICK_PROMPTS = [
+  "Is it safe to drive this right now?",
+  "Give me the top 3 checks with basic tools.",
+  "Which part is most likely failing?",
+  "Should I pull over now or can I make it home?",
+];
 
 const state = {
   port: null,
@@ -48,96 +59,92 @@ const state = {
   connectionProfile: null,
   readFailures: 0,
   autoRecovering: false,
-  pollCount: 0,
 };
-
-const QUICK_PROMPTS = [
-  "What should I inspect first given these readings?",
-  "Translate this into plain language for a non-mechanic.",
-  "Give me the safest next 3 checks before driving farther.",
-  "If this is urgent, tell me exactly why and what to stop doing.",
-];
 
 boot();
 
 function boot() {
-  addMessage(
-    "assistant",
-    "Welcome to OBD2S. Same scanner roots, upgraded brains. Connect the cable, hit Start Polling, and I will turn raw PIDs into useful next moves."
-  );
+  hydrateChatHistory();
+  if (!state.messages.length) {
+    recordMessage(
+      "assistant",
+      "OBD2S online. Connect scanner, start polling, ask what to do next."
+    );
+  }
+
   connectButton.addEventListener("click", onConnectClick);
   startButton.addEventListener("click", startPolling);
   stopButton.addEventListener("click", stopPolling);
   chatForm.addEventListener("submit", onChatSubmit);
   quickActions.addEventListener("click", onQuickActionClick);
+  clearHistoryButton.addEventListener("click", onClearHistory);
+
+  renderQuickActions();
   updateAdapterProfile(null);
   updateConnectionUi("disconnected");
-  renderQuickActions();
+  setScanMode("Idle");
+  updateLiveStamp(null);
 
   if (!("serial" in navigator)) {
     state.useDemoMode = true;
-    setStatus("Web Serial is unavailable. Running in demo telemetry mode.");
+    updateConnectionUi("demo");
+    setScanMode("Demo mode");
+    setStatus("Web Serial unavailable in this browser. Demo telemetry enabled.");
     updateAdapterProfile({
       adapterName: "Demo mode",
       baudRate: "--",
       protocolLabel: "simulation",
     });
-    setScanMode("Demo mode");
-    updateConnectionUi("warning");
     startButton.disabled = false;
   }
 }
 
+function renderQuickActions() {
+  quickActions.innerHTML = "";
+  QUICK_PROMPTS.forEach((prompt) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "quick-prompt-btn";
+    button.dataset.prompt = prompt;
+    button.textContent = prompt;
+    quickActions.appendChild(button);
+  });
+}
+
 async function onConnectClick() {
   if (state.useDemoMode) {
+    setStatus("Demo mode ready. Start polling.");
     startButton.disabled = false;
-    setStatus("Demo mode ready. Click Start Polling.");
     return;
   }
 
   try {
     updateConnectionUi("connecting");
+    setScanMode("Connecting");
     const port = await navigator.serial.requestPort();
     const profile = await connectWithAutoDetect(port);
     state.port = port;
     state.connectionProfile = profile;
     state.readFailures = 0;
+
     updateAdapterProfile(profile);
-    setScanMode("Live scanner");
     updateConnectionUi("connected");
-    setStatus(
-      `Connected at ${profile.baudRate} baud (${profile.protocolLabel}). Press Start Polling.`
-    );
-    startButton.disabled = false;
+    setScanMode("Connected");
+    setStatus(`Connected: ${profile.baudRate} baud, ${profile.protocolLabel}.`);
     connectButton.disabled = true;
+    startButton.disabled = false;
   } catch (error) {
     console.error(error);
     state.useDemoMode = true;
-    startButton.disabled = false;
+    updateConnectionUi("demo");
+    setScanMode("Demo mode");
+    setStatus("Scanner connect failed. Switched to demo telemetry.");
     updateAdapterProfile({
       adapterName: "Demo mode",
       baudRate: "--",
       protocolLabel: "simulation",
     });
-    setScanMode("Demo mode");
-    updateConnectionUi("warning");
-    setStatus("Could not connect scanner. Falling back to demo mode.");
-  }
-}
-
-async function initializeElm327() {
-  const setup = [
-    "ATZ",
-    "ATE0",
-    "ATL0",
-    "ATS0",
-    "ATH0",
-    "ATCAF0",
-    "ATST64",
-    "ATSP0",
-  ];
-  for (const command of setup) {
-    await sendAndRead(command);
+    startButton.disabled = false;
   }
 }
 
@@ -146,18 +153,17 @@ function startPolling() {
     return;
   }
 
-  stopButton.disabled = false;
   startButton.disabled = true;
+  stopButton.disabled = false;
+  updateConnectionUi(state.useDemoMode ? "demo" : "connected");
   setScanMode(state.useDemoMode ? "Demo polling" : "Live polling");
-  updateConnectionUi("connected");
   setStatus(state.useDemoMode ? "Polling demo data..." : "Polling scanner...");
 
   pollOnce();
   state.pollTimer = setInterval(pollOnce, 1800);
-  state.proactiveTimer = setInterval(
-    () => requestAssistantReply("", "Proactive check triggered by new frames."),
-    9000
-  );
+  state.proactiveTimer = setInterval(() => {
+    requestAssistantReply("", "Proactive check triggered by new telemetry.");
+  }, 9000);
 }
 
 function stopPolling() {
@@ -185,7 +191,6 @@ async function pollOnce() {
   try {
     const frame = state.useDemoMode ? demoFrame() : await liveFrame();
     state.readFailures = 0;
-    state.pollCount += 1;
     state.latestFrame = frame;
     state.telemetryFrames.push(frame);
     if (state.telemetryFrames.length > 40) {
@@ -197,7 +202,7 @@ async function pollOnce() {
     console.error(error);
     state.readFailures += 1;
     updateConnectionUi("warning");
-    setStatus("Read failed. Keeping last known values.");
+    setStatus("Read failed. Retaining previous frame.");
     if (!state.useDemoMode && state.readFailures >= ROBUST_SETTINGS.maxReadFailuresBeforeReconnect) {
       await attemptAutoRecover();
     }
@@ -211,9 +216,7 @@ async function liveFrame() {
   const speedKph = await readPid(PID_COMMANDS.speedKph, decodeSpeed);
   const coolantTempC = await readPid(PID_COMMANDS.coolantTempC, decodeCoolant);
   const shortFuelTrimPct = await readPid(PID_COMMANDS.shortFuelTrimPct, decodeFuelTrim);
-
-  const dtcResponse = await sendAndRead("03");
-  const dtcs = parseDtcs(dtcResponse);
+  const dtcs = parseDtcs(await sendAndRead("03"));
 
   return {
     timestamp: new Date().toISOString(),
@@ -228,26 +231,19 @@ async function liveFrame() {
 
 function demoFrame() {
   const now = Date.now() / 1000;
-  const rpm = Math.round(850 + Math.sin(now * 1.8) * 200 + Math.random() * 70);
-  const speedKph = Math.max(0, Math.round(35 + Math.sin(now * 0.6) * 20 + Math.random() * 5));
-  const coolantTempC = Math.round(89 + Math.sin(now * 0.25) * 7 + Math.random());
-  const shortFuelTrimPct = Number((Math.sin(now * 1.4) * 4 + (Math.random() - 0.5) * 2).toFixed(1));
-  const dtcs = Math.random() > 0.88 ? ["P0420"] : [];
-
   return {
     timestamp: new Date().toISOString(),
-    rpm,
-    speedKph,
-    coolantTempC,
-    shortFuelTrimPct,
+    rpm: Math.round(850 + Math.sin(now * 1.8) * 200 + Math.random() * 70),
+    speedKph: Math.max(0, Math.round(35 + Math.sin(now * 0.6) * 20 + Math.random() * 5)),
+    coolantTempC: Math.round(89 + Math.sin(now * 0.25) * 7 + Math.random()),
+    shortFuelTrimPct: Number((Math.sin(now * 1.4) * 4 + (Math.random() - 0.5) * 2).toFixed(1)),
     throttlePct: null,
-    dtcs,
+    dtcs: Math.random() > 0.88 ? ["P0420"] : [],
   };
 }
 
 async function readPid(command, decoder) {
-  const response = await sendAndRead(command);
-  return decoder(response);
+  return decoder(await sendAndRead(command));
 }
 
 async function sendAndRead(command) {
@@ -309,7 +305,7 @@ function extractPidData(response, prefix, count) {
   const tokens = response.split(/\s+/).filter((token) => /^[0-9A-F]{2}$/.test(token));
   const [mode, pid] = prefix.split(" ");
   const index = tokens.findIndex((token, idx) => token === mode && tokens[idx + 1] === pid);
-  if (index === -1) {
+  if (index < 0) {
     return null;
   }
   const bytes = tokens.slice(index + 2, index + 2 + count).map((token) => Number.parseInt(token, 16));
@@ -320,13 +316,11 @@ function parseDtcs(response) {
   if (!response || response.includes("NO DATA")) {
     return [];
   }
-
   const tokens = response.split(/\s+/).filter((token) => /^[0-9A-F]{2}$/.test(token));
   const start = tokens.findIndex((token) => token === "43");
-  if (start === -1) {
+  if (start < 0) {
     return [];
   }
-
   const dtcBytes = tokens.slice(start + 1);
   const codes = [];
   for (let i = 0; i < dtcBytes.length; i += 2) {
@@ -352,8 +346,7 @@ async function connectWithAutoDetect(port) {
       await openPortStreams(port, baudRate);
       await initializeElm327();
       const adapterName = await readAdapterIdentity();
-      const protocolResponse = await sendAndRead("ATDP");
-      const protocolLabel = parseProtocolLabel(protocolResponse);
+      const protocolLabel = parseProtocolLabel(await sendAndRead("ATDP"));
       return { baudRate, protocolLabel, adapterName };
     } catch (error) {
       lastError = error;
@@ -361,29 +354,29 @@ async function connectWithAutoDetect(port) {
       await wait(connectionRetryJitterMs());
     }
   }
-  throw new Error(`Could not initialize scanner on common baud rates. Last error: ${lastError?.message || "unknown"}`);
+  throw new Error(
+    `Could not initialize scanner on common baud rates. Last error: ${lastError?.message || "unknown"}`
+  );
+}
+
+async function initializeElm327() {
+  const setup = ["ATZ", "ATE0", "ATL0", "ATS0", "ATH0", "ATCAF0", "ATST64", "ATSP0"];
+  for (const command of setup) {
+    await sendAndRead(command);
+  }
 }
 
 async function readAdapterIdentity() {
   const firstProbe = normalizeAdapterReply(await sendAndRead("ATI"));
   const secondProbe = normalizeAdapterReply(await sendAndRead("ATI"));
   if (!firstProbe || firstProbe !== secondProbe) {
-    throw new Error("Adapter did not return a stable identity reply.");
+    throw new Error("Adapter did not return stable identity reply.");
   }
-
-  const labelProbe = normalizeAdapterReply(await sendAndRead("AT@1"));
-  return labelProbe || firstProbe;
+  return normalizeAdapterReply(await sendAndRead("AT@1")) || firstProbe;
 }
 
 function normalizeAdapterReply(value) {
-  if (!value) {
-    return "";
-  }
-  return value
-    .replace(/\s+/g, " ")
-    .replace(/OK/gi, "")
-    .trim()
-    .toUpperCase();
+  return (value || "").replace(/\s+/g, " ").replace(/OK/gi, "").trim().toUpperCase();
 }
 
 function sanitizeElmResponse(text) {
@@ -418,8 +411,8 @@ async function closeCurrentStreams(port) {
       state.reader.releaseLock();
       state.reader = null;
     }
-  } catch (_err) {
-    // ignored: close path cleanup
+  } catch (_error) {
+    // Ignore cleanup errors.
   }
 
   try {
@@ -427,50 +420,47 @@ async function closeCurrentStreams(port) {
       state.writer.releaseLock();
       state.writer = null;
     }
-  } catch (_err) {
-    // ignored: close path cleanup
+  } catch (_error) {
+    // Ignore cleanup errors.
   }
 
   try {
     if (port.readable || port.writable) {
       await port.close();
     }
-  } catch (_err) {
-    // ignored: close path cleanup
+  } catch (_error) {
+    // Ignore cleanup errors.
   }
 }
 
 function parseProtocolLabel(response) {
-  if (!response) {
-    return "auto";
-  }
-  const cleaned = response
-    .replace(/^AUTO[, ]*/i, "")
-    .replace(/^A\d+\s*/i, "")
-    .trim();
-  return cleaned || "auto";
+  return (response || "auto").replace(/^AUTO[, ]*/i, "").replace(/^A\d+\s*/i, "").trim() || "auto";
 }
 
 async function attemptAutoRecover() {
   if (state.autoRecovering || !state.port) {
     return;
   }
+
   state.autoRecovering = true;
-  updateConnectionUi("connecting");
-  setStatus("Scanner read unstable. Attempting automatic reconnection...");
+  updateConnectionUi("recovering");
+  setScanMode("Recovering");
+  setStatus("Scanner link unstable. Attempting automatic reconnect...");
+
   try {
-    const preferredBaud = state.connectionProfile?.baudRate;
     await closeCurrentStreams(state.port);
     await wait(ROBUST_SETTINGS.reconnectBackoffMs);
-    const profile = await connectWithAutoDetect(state.port, preferredBaud);
+    const profile = await connectWithAutoDetect(state.port);
     state.connectionProfile = profile;
     state.readFailures = 0;
     updateAdapterProfile(profile);
     updateConnectionUi("connected");
-    setStatus(`Reconnected successfully at ${profile.baudRate} baud.`);
+    setScanMode("Connected");
+    setStatus(`Reconnected at ${profile.baudRate} baud.`);
   } catch (error) {
     console.error(error);
     updateConnectionUi("warning");
+    setScanMode("Needs reconnect");
     setStatus("Auto-recovery failed. Reconnect scanner manually.");
     stopPolling();
   } finally {
@@ -478,33 +468,14 @@ async function attemptAutoRecover() {
   }
 }
 
-function updateAdapterProfile(profile) {
-  if (!adapterNameValue || !adapterBaudValue || !adapterProtocolValue) {
+async function onChatSubmit(event) {
+  event.preventDefault();
+  const prompt = chatInput.value.trim();
+  if (!prompt) {
     return;
   }
-
-  if (!profile) {
-    adapterNameValue.textContent = "Unknown";
-    adapterBaudValue.textContent = "--";
-    adapterProtocolValue.textContent = "--";
-    return;
-  }
-
-  adapterNameValue.textContent = profile.adapterName || "Unknown";
-  adapterBaudValue.textContent = String(profile.baudRate ?? "--");
-  adapterProtocolValue.textContent = profile.protocolLabel || "auto";
-}
-
-function renderQuickActions() {
-  quickActions.innerHTML = "";
-  QUICK_PROMPTS.forEach((prompt) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "quick-action";
-    button.textContent = prompt;
-    button.dataset.prompt = prompt;
-    quickActions.appendChild(button);
-  });
+  chatInput.value = "";
+  await requestAssistantReply(prompt, "Driver asked a direct question.");
 }
 
 async function onQuickActionClick(event) {
@@ -516,83 +487,17 @@ async function onQuickActionClick(event) {
   if (!prompt) {
     return;
   }
-  addMessage("user", prompt);
-  await requestAssistantReply(prompt, "Driver selected a quick action prompt.");
-}
-
-function updateConnectionUi(status) {
-  if (!connectionBadge) {
-    return;
-  }
-  connectionBadge.className = `badge ${status}`;
-  if (status === "connected") {
-    connectionBadge.textContent = "CONNECTED";
-  } else if (status === "connecting") {
-    connectionBadge.textContent = "CONNECTING";
-  } else if (status === "warning") {
-    connectionBadge.textContent = "ATTENTION";
-  } else {
-    connectionBadge.textContent = "DISCONNECTED";
-  }
-}
-
-function setScanMode(text) {
-  if (scanMode) {
-    scanMode.textContent = text;
-  }
-}
-
-function updateLiveStamp(timestamp) {
-  if (!liveStamp) {
-    return;
-  }
-  liveStamp.textContent = new Date(timestamp).toLocaleTimeString();
-}
-
-function wait(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function connectionRetryJitterMs() {
-  return 180 + Math.floor(Math.random() * 220);
-}
-
-function renderFrame(frame) {
-  rpmValue.textContent = valueWithUnit(frame.rpm, "rpm");
-  coolantValue.textContent = valueWithUnit(frame.coolantTempC, "C");
-  speedValue.textContent = valueWithUnit(frame.speedKph, "km/h");
-  fuelTrimValue.textContent = valueWithUnit(frame.shortFuelTrimPct, "%");
-
-  if (!frame.dtcs.length) {
-    dtcList.innerHTML = "<li>No codes detected.</li>";
-  } else {
-    dtcList.innerHTML = frame.dtcs.map((code) => `<li>${code}</li>`).join("");
-  }
-}
-
-function valueWithUnit(value, unit) {
-  return Number.isFinite(value) ? `${value} ${unit}` : "--";
-}
-
-async function onChatSubmit(event) {
-  event.preventDefault();
-  const text = chatInput.value.trim();
-  if (!text) {
-    return;
-  }
-
-  chatInput.value = "";
-  addMessage("user", text);
-  await requestAssistantReply(text, "User asked a direct question.");
+  await requestAssistantReply(prompt, "Driver selected a quick prompt.");
 }
 
 async function requestAssistantReply(userMessage, eventContext) {
-  if (!state.latestFrame) {
-    return;
+  if (userMessage) {
+    recordMessage("user", userMessage);
   }
 
-  if (userMessage) {
-    state.messages.push({ role: "user", content: userMessage });
+  if (!state.latestFrame) {
+    recordMessage("assistant", "Need one live frame first. Press Start Polling.");
+    return;
   }
 
   try {
@@ -611,32 +516,162 @@ async function requestAssistantReply(userMessage, eventContext) {
     }
 
     const payload = await response.json();
-    const prefix =
-      payload.source === "grok" ? "[Grok 4.3]" : payload.source === "fallback-error" ? "[Fallback after Grok error]" : "[Fallback]";
-    const reply = `${prefix} ${payload.reply}`;
-    state.messages.push({ role: "assistant", content: reply });
-    addMessage("assistant", reply);
-    setStatus(
-      payload.source === "grok"
-        ? "Live Grok interpretation active."
-        : "Fallback interpretation active. Set GROK_API_KEY for Grok responses."
-    );
+    const policyPrefix =
+      payload.source === "official-rag"
+        ? "[Official]"
+        : payload.source === "community-fallback"
+          ? "[Forum]"
+          : payload.source === "grok"
+            ? "[Grok]"
+            : "[Fallback]";
+    recordMessage("assistant", `${policyPrefix} ${payload.reply}`);
+
+    if (payload.source === "official-rag") {
+      setStatus("Using official guidance.");
+    } else if (payload.source === "community-fallback") {
+      setStatus("Using third-party forum guidance with disclosure.");
+    } else {
+      setStatus("No matched source found. Reply limited to model/fallback guidance.");
+    }
   } catch (error) {
     console.error(error);
-    addMessage("assistant", "I could not reach the server. Check connectivity and try again.");
+    recordMessage("assistant", "I could not reach the server. Check connectivity and retry.");
   }
 }
 
-function addMessage(role, content) {
-  const messageNode = messageTemplate.content.firstElementChild.cloneNode(true);
-  messageNode.classList.add(role);
-  messageNode.querySelector(".chat-role").textContent =
-    role === "user" ? "Driver" : "OBD2S Copilot";
-  messageNode.querySelector(".chat-content").textContent = content;
-  chatLog.appendChild(messageNode);
-  chatLog.scrollTop = chatLog.scrollHeight;
+function renderFrame(frame) {
+  rpmValue.textContent = valueWithUnit(frame.rpm, "rpm");
+  coolantValue.textContent = valueWithUnit(frame.coolantTempC, "C");
+  speedValue.textContent = valueWithUnit(frame.speedKph, "km/h");
+  fuelTrimValue.textContent = valueWithUnit(frame.shortFuelTrimPct, "%");
+  dtcList.innerHTML = frame.dtcs.length
+    ? frame.dtcs.map((code) => `<li>${code}</li>`).join("")
+    : "<li>No codes detected.</li>";
+}
+
+function valueWithUnit(value, unit) {
+  return Number.isFinite(value) ? `${value} ${unit}` : "--";
+}
+
+function updateAdapterProfile(profile) {
+  if (!profile) {
+    adapterNameValue.textContent = "Unknown";
+    adapterBaudValue.textContent = "--";
+    adapterProtocolValue.textContent = "--";
+    return;
+  }
+  adapterNameValue.textContent = profile.adapterName || "Unknown";
+  adapterBaudValue.textContent = String(profile.baudRate ?? "--");
+  adapterProtocolValue.textContent = profile.protocolLabel || "auto";
+}
+
+function updateConnectionUi(status) {
+  connectionBadge.className = "status-badge offline";
+  if (status === "connected") {
+    connectionBadge.className = "status-badge online";
+    connectionBadge.textContent = "Connected";
+    connectionHint.textContent = "Scanner link established. Start polling.";
+  } else if (status === "connecting") {
+    connectionBadge.className = "status-badge recovering";
+    connectionBadge.textContent = "Connecting";
+    connectionHint.textContent = "Negotiating adapter and protocol...";
+  } else if (status === "recovering" || status === "warning") {
+    connectionBadge.className = "status-badge recovering";
+    connectionBadge.textContent = "Recovering";
+    connectionHint.textContent = "Trying to restore scanner connection.";
+  } else if (status === "demo") {
+    connectionBadge.className = "status-badge recovering";
+    connectionBadge.textContent = "Demo";
+    connectionHint.textContent = "Demo telemetry active (no scanner).";
+  } else {
+    connectionBadge.textContent = "Disconnected";
+    connectionHint.textContent = "Plug cable in, then press Connect Scanner.";
+  }
+}
+
+function setScanMode(text) {
+  scanModeValue.textContent = text;
+}
+
+function updateLiveStamp(timestamp) {
+  liveStampValue.textContent = timestamp
+    ? new Date(timestamp).toLocaleTimeString()
+    : "--:--:--";
 }
 
 function setStatus(text) {
   connectionStatus.textContent = text;
+}
+
+function recordMessage(role, content) {
+  const safeEntry = { role, content: String(content).trim() };
+  state.messages.push(safeEntry);
+  if (state.messages.length > MAX_CHAT_MESSAGES) {
+    state.messages = state.messages.slice(-MAX_CHAT_MESSAGES);
+  }
+  renderChatMessage(safeEntry);
+  persistChatHistory();
+}
+
+function renderChatMessage(entry) {
+  const node = messageTemplate.content.firstElementChild.cloneNode(true);
+  node.classList.add(entry.role);
+  node.querySelector(".chat-role").textContent =
+    entry.role === "user" ? "Driver" : "OBD2S Copilot";
+  node.querySelector(".chat-content").textContent = entry.content;
+  chatLog.appendChild(node);
+  chatLog.scrollTop = chatLog.scrollHeight;
+}
+
+function hydrateChatHistory() {
+  try {
+    const raw = localStorage.getItem(CHAT_STORAGE_KEY);
+    if (!raw) {
+      return;
+    }
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return;
+    }
+
+    state.messages = parsed
+      .filter((entry) => {
+        return (
+          entry &&
+          typeof entry.content === "string" &&
+          (entry.role === "user" || entry.role === "assistant")
+        );
+      })
+      .slice(-MAX_CHAT_MESSAGES);
+
+    state.messages.forEach((entry) => renderChatMessage(entry));
+    if (state.messages.length) {
+      setStatus("Restored previous OBD2S chat history.");
+    }
+  } catch (_error) {
+    localStorage.removeItem(CHAT_STORAGE_KEY);
+  }
+}
+
+function persistChatHistory() {
+  try {
+    localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(state.messages));
+  } catch (_error) {
+    // Ignore private-mode or quota failures.
+  }
+}
+
+function onClearHistory() {
+  state.messages = [];
+  chatLog.innerHTML = "";
+  localStorage.removeItem(CHAT_STORAGE_KEY);
+  recordMessage("assistant", "History cleared. Fresh OBD2S session started.");
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function connectionRetryJitterMs() {
+  return 180 + Math.floor(Math.random() * 220);
 }

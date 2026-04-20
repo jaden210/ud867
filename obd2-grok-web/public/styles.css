@@ -270,6 +270,18 @@ button:disabled {
   font-size: 13px;
 }
 
+.chat-footnote {
+  margin: 7px 0 0;
+  font-size: 11px;
+  color: var(--text-dim);
+  opacity: 0.95;
+}
+
+.source-policy {
+  border-left: 2px solid var(--panel-edge);
+  padding-left: 8px;
+}
+
 .chat-form {
   display: flex;
   gap: 8px;
