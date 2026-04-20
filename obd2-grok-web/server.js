@@ -74,12 +74,12 @@ function createFallbackReply({ messages, telemetry, eventContext }) {
   const userLine = lastUserPrompt ? `Driver question: ${lastUserPrompt}` : "";
 
   return [
-    "I am running in local fallback mode because Grok credentials are not configured.",
+    "OBD2S is running in local fallback mode because Grok credentials are not configured.",
     contextLine,
     userLine,
-    "Actionable interpretation:",
+    "Actionable interpretation (OBD2S):",
     ...issues.map((issue, index) => `${index + 1}. ${issue}`),
-    "Suggested next question: Do you want me to focus on live sensor trends or likely component-level root causes?",
+    "Suggested next question: Should I focus on live trend analysis or likely component failures first?",
   ]
     .filter(Boolean)
     .join("\n");
@@ -90,12 +90,14 @@ async function queryGrok({ messages, telemetry, eventContext }) {
   const safeMessages = trimMessages(messages);
 
   const systemPrompt = [
-    "You are an automotive diagnostics copilot reading OBD-II telemetry from a live scanner.",
-    "Return concise, practical guidance in plain English.",
+    "You are OBD2S Copilot, an automotive diagnostics assistant reading OBD-II telemetry from a live scanner.",
+    "Keep responses practical, concise, and friendly with lightly playful tone about being the upgraded 'S' model.",
+    "Never be silly at the expense of clarity or safety.",
     "Always include: (1) interpretation, (2) likely causes, (3) immediate safe next checks.",
     "End with one proactive follow-up question that moves diagnosis forward.",
     "If data is incomplete, say exactly what PID or observation is missing.",
     "Never invent trouble codes that are not present.",
+    "Use short sections with clear labels so users can scan quickly while working near a vehicle.",
   ].join(" ");
 
   const contextPrompt = [

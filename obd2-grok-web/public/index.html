@@ -3,27 +3,34 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>OBD-II + Grok Proactive Diagnostics</title>
+    <title>OBD2S - Retro Scanner, Smart Diagnostics</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <header class="page-header">
-      <h1>OBD-II + Grok Proactive Diagnostics</h1>
+      <div class="brand-row">
+        <h1>OBD2S</h1>
+        <span class="brand-chip">S Edition</span>
+      </div>
       <p class="subtitle">
-        Connect your scanner, stream telemetry, and chat with proactive repair guidance.
+        Looks like a classic OBD screen. Diagnoses like an upgraded copilot.
       </p>
     </header>
 
     <main class="layout">
       <section class="card controls-card">
-        <h2>Scanner Connection</h2>
+        <h2>Scanner Link</h2>
         <p class="muted">
-          Browser support required: Web Serial API (Chromium-based browsers).
+          Browser support required: Web Serial API (Chrome/Edge).
         </p>
         <p class="muted">
-          Robust adapter profile enabled for clone ELM327 / INPA-style cables (including Taotao
-          B07L498NGZ variants).
+          OBD2S robust profile supports clone ELM327 / INPA-style cables (including Taotao
+          B07L498NGZ variants) with baud auto-detect and auto-recovery.
         </p>
+        <div class="status-strip">
+          <span id="connectionBadge" class="badge badge-off">DISCONNECTED</span>
+          <span id="connectionHint" class="hint-text">Plug cable in, then press Connect Scanner.</span>
+        </div>
         <div class="button-row">
           <button id="connectBtn">Connect Scanner</button>
           <button id="startBtn" disabled>Start Polling</button>
@@ -35,10 +42,16 @@
           <li><span>Baud:</span> <strong id="adapterBaud">--</strong></li>
           <li><span>Protocol:</span> <strong id="adapterProtocol">--</strong></li>
         </ul>
+        <h3>2-minute flow</h3>
+        <ol class="flow-list">
+          <li>Connect Scanner</li>
+          <li>Start Polling</li>
+          <li>Ask OBD2S what to check next</li>
+        </ol>
       </section>
 
       <section class="card metrics-card">
-        <h2>Live Telemetry</h2>
+        <h2>Live Telemetry Feed</h2>
         <div class="metrics-grid">
           <div class="metric">
             <span class="metric-label">RPM</span>
@@ -64,14 +77,36 @@
       </section>
 
       <section class="card chat-card">
-        <h2>Proactive Chat</h2>
+        <h2>OBD2S Chat</h2>
+        <p class="muted">
+          The S version: plain-English diagnosis, safe next steps, and proactive follow-up prompts.
+        </p>
+        <div class="quick-prompts">
+          <button type="button" class="quick-btn" data-prompt="Is it safe to drive this right now?">
+            Safe to drive?
+          </button>
+          <button
+            type="button"
+            class="quick-btn"
+            data-prompt="Give me the top 3 checks I should do first with basic tools."
+          >
+            Top 3 checks
+          </button>
+          <button
+            type="button"
+            class="quick-btn"
+            data-prompt="Based on these live readings, what part is most likely failing?"
+          >
+            Most likely failing part
+          </button>
+        </div>
         <div id="chatLog" class="chat-log" aria-live="polite"></div>
         <form id="chatForm" class="chat-form">
           <input
             id="chatInput"
             name="chatInput"
             type="text"
-            placeholder="Ask about symptoms, next checks, or repair priorities..."
+            placeholder="Tell OBD2S what you hear/feel and it will guide your next step..."
             autocomplete="off"
             required
           />

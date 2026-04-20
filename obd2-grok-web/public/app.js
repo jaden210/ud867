@@ -1,7 +1,11 @@
 const connectButton = document.querySelector("#connectBtn");
 const startButton = document.querySelector("#startBtn");
 const stopButton = document.querySelector("#stopBtn");
+const quickActions = document.querySelector("#quickActions");
 const connectionStatus = document.querySelector("#connectionStatus");
+const connectionBadge = document.querySelector("#connectionBadge");
+const scanMode = document.querySelector("#scanMode");
+const liveStamp = document.querySelector("#liveStamp");
 const adapterNameValue = document.querySelector("#adapterName");
 const adapterBaudValue = document.querySelector("#adapterBaud");
 const adapterProtocolValue = document.querySelector("#adapterProtocol");
@@ -44,20 +48,31 @@ const state = {
   connectionProfile: null,
   readFailures: 0,
   autoRecovering: false,
+  pollCount: 0,
 };
+
+const QUICK_PROMPTS = [
+  "What should I inspect first given these readings?",
+  "Translate this into plain language for a non-mechanic.",
+  "Give me the safest next 3 checks before driving farther.",
+  "If this is urgent, tell me exactly why and what to stop doing.",
+];
 
 boot();
 
 function boot() {
   addMessage(
     "assistant",
-    "Connect a scanner, then I will proactively flag patterns and ask targeted follow-up questions."
+    "Welcome to OBD2S. Same scanner roots, upgraded brains. Connect the cable, hit Start Polling, and I will turn raw PIDs into useful next moves."
   );
   connectButton.addEventListener("click", onConnectClick);
   startButton.addEventListener("click", startPolling);
   stopButton.addEventListener("click", stopPolling);
   chatForm.addEventListener("submit", onChatSubmit);
+  quickActions.addEventListener("click", onQuickActionClick);
   updateAdapterProfile(null);
+  updateConnectionUi("disconnected");
+  renderQuickActions();
 
   if (!("serial" in navigator)) {
     state.useDemoMode = true;
@@ -67,6 +82,8 @@ function boot() {
       baudRate: "--",
       protocolLabel: "simulation",
     });
+    setScanMode("Demo mode");
+    updateConnectionUi("warning");
     startButton.disabled = false;
   }
 }
@@ -79,14 +96,17 @@ async function onConnectClick() {
   }
 
   try {
+    updateConnectionUi("connecting");
     const port = await navigator.serial.requestPort();
     const profile = await connectWithAutoDetect(port);
     state.port = port;
     state.connectionProfile = profile;
     state.readFailures = 0;
     updateAdapterProfile(profile);
+    setScanMode("Live scanner");
+    updateConnectionUi("connected");
     setStatus(
-      `Scanner connected at ${profile.baudRate} baud (${profile.protocolLabel}). Ready to poll.`
+      `Connected at ${profile.baudRate} baud (${profile.protocolLabel}). Press Start Polling.`
     );
     startButton.disabled = false;
     connectButton.disabled = true;
@@ -99,6 +119,8 @@ async function onConnectClick() {
       baudRate: "--",
       protocolLabel: "simulation",
     });
+    setScanMode("Demo mode");
+    updateConnectionUi("warning");
     setStatus("Could not connect scanner. Falling back to demo mode.");
   }
 }
@@ -126,6 +148,8 @@ function startPolling() {
 
   stopButton.disabled = false;
   startButton.disabled = true;
+  setScanMode(state.useDemoMode ? "Demo polling" : "Live polling");
+  updateConnectionUi("connected");
   setStatus(state.useDemoMode ? "Polling demo data..." : "Polling scanner...");
 
   pollOnce();
@@ -148,6 +172,7 @@ function stopPolling() {
 
   startButton.disabled = false;
   stopButton.disabled = true;
+  setScanMode(state.useDemoMode ? "Demo idle" : "Connected idle");
   setStatus("Polling stopped.");
 }
 
@@ -160,15 +185,18 @@ async function pollOnce() {
   try {
     const frame = state.useDemoMode ? demoFrame() : await liveFrame();
     state.readFailures = 0;
+    state.pollCount += 1;
     state.latestFrame = frame;
     state.telemetryFrames.push(frame);
     if (state.telemetryFrames.length > 40) {
       state.telemetryFrames.shift();
     }
     renderFrame(frame);
+    updateLiveStamp(frame.timestamp);
   } catch (error) {
     console.error(error);
     state.readFailures += 1;
+    updateConnectionUi("warning");
     setStatus("Read failed. Keeping last known values.");
     if (!state.useDemoMode && state.readFailures >= ROBUST_SETTINGS.maxReadFailuresBeforeReconnect) {
       await attemptAutoRecover();
@@ -428,6 +456,7 @@ async function attemptAutoRecover() {
     return;
   }
   state.autoRecovering = true;
+  updateConnectionUi("connecting");
   setStatus("Scanner read unstable. Attempting automatic reconnection...");
   try {
     const preferredBaud = state.connectionProfile?.baudRate;
@@ -437,9 +466,11 @@ async function attemptAutoRecover() {
     state.connectionProfile = profile;
     state.readFailures = 0;
     updateAdapterProfile(profile);
+    updateConnectionUi("connected");
     setStatus(`Reconnected successfully at ${profile.baudRate} baud.`);
   } catch (error) {
     console.error(error);
+    updateConnectionUi("warning");
     setStatus("Auto-recovery failed. Reconnect scanner manually.");
     stopPolling();
   } finally {
@@ -462,6 +493,60 @@ function updateAdapterProfile(profile) {
   adapterNameValue.textContent = profile.adapterName || "Unknown";
   adapterBaudValue.textContent = String(profile.baudRate ?? "--");
   adapterProtocolValue.textContent = profile.protocolLabel || "auto";
+}
+
+function renderQuickActions() {
+  quickActions.innerHTML = "";
+  QUICK_PROMPTS.forEach((prompt) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "quick-action";
+    button.textContent = prompt;
+    button.dataset.prompt = prompt;
+    quickActions.appendChild(button);
+  });
+}
+
+async function onQuickActionClick(event) {
+  const target = event.target;
+  if (!(target instanceof HTMLButtonElement)) {
+    return;
+  }
+  const prompt = target.dataset.prompt;
+  if (!prompt) {
+    return;
+  }
+  addMessage("user", prompt);
+  await requestAssistantReply(prompt, "Driver selected a quick action prompt.");
+}
+
+function updateConnectionUi(status) {
+  if (!connectionBadge) {
+    return;
+  }
+  connectionBadge.className = `badge ${status}`;
+  if (status === "connected") {
+    connectionBadge.textContent = "CONNECTED";
+  } else if (status === "connecting") {
+    connectionBadge.textContent = "CONNECTING";
+  } else if (status === "warning") {
+    connectionBadge.textContent = "ATTENTION";
+  } else {
+    connectionBadge.textContent = "DISCONNECTED";
+  }
+}
+
+function setScanMode(text) {
+  if (scanMode) {
+    scanMode.textContent = text;
+  }
+}
+
+function updateLiveStamp(timestamp) {
+  if (!liveStamp) {
+    return;
+  }
+  liveStamp.textContent = new Date(timestamp).toLocaleTimeString();
 }
 
 function wait(ms) {
@@ -545,7 +630,8 @@ async function requestAssistantReply(userMessage, eventContext) {
 function addMessage(role, content) {
   const messageNode = messageTemplate.content.firstElementChild.cloneNode(true);
   messageNode.classList.add(role);
-  messageNode.querySelector(".chat-role").textContent = role === "user" ? "You" : "Assistant";
+  messageNode.querySelector(".chat-role").textContent =
+    role === "user" ? "Driver" : "OBD2S Copilot";
   messageNode.querySelector(".chat-content").textContent = content;
   chatLog.appendChild(messageNode);
   chatLog.scrollTop = chatLog.scrollHeight;
