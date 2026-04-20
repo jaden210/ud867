@@ -3,105 +3,167 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>OBD2S - Retro Scanner, Smart Diagnostics</title>
+    <title>OBD2S — Smart OBD-II Diagnostics</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+    />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <header class="page-header">
       <div class="brand-row">
-        <h1>OBD2<span class="s-badge">S</span></h1>
-        <span class="brand-chip">Upgraded Edition</span>
+        <div class="brand-mark">
+          <span class="brand-name">OBD2<span class="brand-s">S</span></span>
+          <span class="brand-tag">Diagnostic Copilot</span>
+        </div>
+        <nav class="brand-nav" aria-label="Quick info">
+          <span class="nav-pill">Web Serial</span>
+          <span class="nav-pill">Grok-powered</span>
+          <span class="nav-pill">Source-aware</span>
+        </nav>
       </div>
-      <p class="subtitle">Classic scanner vibe. S-tier diagnosis clarity.</p>
+      <p class="lede">
+        Plug in your OBD-II cable in the browser, stream live engine data, and get clear, sourced
+        guidance from your diagnostic copilot.
+      </p>
     </header>
 
     <main class="layout">
-      <section class="card controls-card">
-        <div class="panel-title-row">
-          <h2>Scanner S-Link</h2>
+      <section class="card scanner-card" aria-labelledby="scanner-title">
+        <div class="panel-head">
+          <div>
+            <h2 id="scanner-title">Scanner</h2>
+            <p class="panel-sub">Connect your ELM327-compatible adapter.</p>
+          </div>
           <span id="connectionBadge" class="status-badge offline">Disconnected</span>
         </div>
-        <p class="muted">Browser support required: Web Serial API (Chrome/Edge).</p>
-        <p class="muted">
-          Robust profile enabled for clone ELM327 / INPA cables (including Taotao B07L498NGZ).
-        </p>
-        <p id="connectionHint" class="muted">Plug cable in, then press Connect Scanner.</p>
-        <div class="button-row">
-          <button id="connectBtn">Connect Scanner</button>
-          <button id="startBtn" disabled>Start Polling</button>
-          <button id="stopBtn" disabled>Stop Polling</button>
+
+        <div class="info-row">
+          <p id="connectionHint" class="hint">Plug the cable in, then press Connect Scanner.</p>
         </div>
-        <p id="connectionStatus" class="status">Disconnected.</p>
-        <ul class="scanner-meta">
-          <li><span>Mode:</span> <strong id="scanMode">Idle</strong></li>
-          <li><span>Adapter:</span> <strong id="adapterName">Unknown</strong></li>
-          <li><span>Baud:</span> <strong id="adapterBaud">--</strong></li>
-          <li><span>Protocol:</span> <strong id="adapterProtocol">--</strong></li>
-          <li><span>Last frame:</span> <strong id="liveStamp">--:--:--</strong></li>
-        </ul>
-        <ol class="quick-start">
-          <li>Connect scanner</li>
-          <li>Start polling</li>
-          <li>Ask OBD2S what to check next</li>
-        </ol>
+
+        <div class="button-row">
+          <button id="connectBtn" class="btn btn-primary">Connect Scanner</button>
+          <button id="startBtn" class="btn" disabled>Start Polling</button>
+          <button id="stopBtn" class="btn btn-ghost" disabled>Stop</button>
+        </div>
+
+        <p id="connectionStatus" class="status-line">Disconnected.</p>
+
+        <dl class="meta-grid" aria-label="Adapter details">
+          <div>
+            <dt>Mode</dt>
+            <dd id="scanMode">Idle</dd>
+          </div>
+          <div>
+            <dt>Adapter</dt>
+            <dd id="adapterName">Unknown</dd>
+          </div>
+          <div>
+            <dt>Baud</dt>
+            <dd id="adapterBaud">—</dd>
+          </div>
+          <div>
+            <dt>Protocol</dt>
+            <dd id="adapterProtocol">—</dd>
+          </div>
+          <div>
+            <dt>Last frame</dt>
+            <dd id="liveStamp">—</dd>
+          </div>
+        </dl>
+
+        <div class="quick-start">
+          <h3>How it works</h3>
+          <ol>
+            <li>Connect your OBD-II cable to the vehicle and your computer.</li>
+            <li>Press Connect Scanner, then Start Polling.</li>
+            <li>Ask the copilot what to check next.</li>
+          </ol>
+          <p class="footnote">
+            Compatible with most ELM327/INPA-style adapters, including the Taotao B07L498NGZ.
+          </p>
+        </div>
       </section>
 
-      <section class="card metrics-card">
-        <div class="panel-title-row">
-          <h2>Live Telemetry</h2>
-          <span class="brand-chip">Pixel utility</span>
+      <section class="card telemetry-card" aria-labelledby="telemetry-title">
+        <div class="panel-head">
+          <div>
+            <h2 id="telemetry-title">Live Telemetry</h2>
+            <p class="panel-sub">Updated continuously while polling.</p>
+          </div>
         </div>
+
         <div class="metrics-grid">
           <div class="metric">
-            <span class="metric-label">RPM</span>
-            <span id="rpmValue" class="metric-value">--</span>
+            <span class="metric-label">Engine RPM</span>
+            <span id="rpmValue" class="metric-value">—</span>
           </div>
           <div class="metric">
             <span class="metric-label">Coolant Temp</span>
-            <span id="coolantValue" class="metric-value">--</span>
+            <span id="coolantValue" class="metric-value">—</span>
           </div>
           <div class="metric">
             <span class="metric-label">Vehicle Speed</span>
-            <span id="speedValue" class="metric-value">--</span>
+            <span id="speedValue" class="metric-value">—</span>
           </div>
           <div class="metric">
             <span class="metric-label">Short Fuel Trim</span>
-            <span id="fuelTrimValue" class="metric-value">--</span>
+            <span id="fuelTrimValue" class="metric-value">—</span>
           </div>
         </div>
-        <h3>Detected DTCs</h3>
-        <ul id="dtcList" class="dtc-list">
-          <li>No codes detected.</li>
-        </ul>
+
+        <div class="dtc-block">
+          <h3>Diagnostic Trouble Codes</h3>
+          <ul id="dtcList" class="dtc-list">
+            <li>No codes detected.</li>
+          </ul>
+        </div>
       </section>
 
-      <section class="card chat-card">
-        <div class="panel-title-row">
-          <h2>OBD2S Chat</h2>
-          <button id="clearChatBtn" type="button">Clear History</button>
+      <section class="card chat-card" aria-labelledby="chat-title">
+        <div class="panel-head">
+          <div>
+            <h2 id="chat-title">Copilot Chat</h2>
+            <p class="panel-sub">Short, sourced guidance based on live data.</p>
+          </div>
+          <button id="clearChatBtn" type="button" class="btn btn-ghost btn-small">
+            Clear History
+          </button>
         </div>
-        <p class="muted">
-          Replies are short and punchy by default. Ask for “explain” or “detailed” when needed.
+
+        <p class="policy-note">
+          Answers prefer official manuals and OEM bulletins. Forum and community sources are used
+          only when needed and labeled clearly.
         </p>
-        <p class="muted source-policy">
-          Source policy: OBD2S checks official manuals/guides first. If none found, it may cite
-          forum data and clearly label it as third-party.
-        </p>
-        <div id="quickActions" class="quick-prompts"></div>
+
+        <div id="quickActions" class="quick-actions" aria-label="Suggested questions"></div>
+
         <div id="chatLog" class="chat-log" aria-live="polite"></div>
+
         <form id="chatForm" class="chat-form">
+          <label class="visually-hidden" for="chatInput">Ask the copilot</label>
           <input
             id="chatInput"
             name="chatInput"
             type="text"
-            placeholder="Ask what to do next (e.g. “safe to drive?”)"
+            placeholder="Ask anything (e.g. is it safe to drive?)"
             autocomplete="off"
             required
           />
-          <button type="submit">Send</button>
+          <button type="submit" class="btn btn-primary">Send</button>
         </form>
       </section>
     </main>
+
+    <footer class="page-footer">
+      <span>OBD2S</span>
+      <span class="dot">•</span>
+      <span>Diagnostic guidance only — confirm critical work with a qualified technician.</span>
+    </footer>
 
     <template id="chatMessageTemplate">
       <article class="chat-message">

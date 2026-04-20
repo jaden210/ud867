@@ -104,7 +104,7 @@ function renderQuickActions() {
   QUICK_PROMPTS.forEach((prompt) => {
     const button = document.createElement("button");
     button.type = "button";
-    button.className = "quick-prompt-btn";
+    button.className = "btn";
     button.dataset.prompt = prompt;
     button.textContent = prompt;
     quickActions.appendChild(button);
