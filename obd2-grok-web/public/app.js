@@ -2,6 +2,9 @@ const connectButton = document.querySelector("#connectBtn");
 const startButton = document.querySelector("#startBtn");
 const stopButton = document.querySelector("#stopBtn");
 const connectionStatus = document.querySelector("#connectionStatus");
+const adapterNameValue = document.querySelector("#adapterName");
+const adapterBaudValue = document.querySelector("#adapterBaud");
+const adapterProtocolValue = document.querySelector("#adapterProtocol");
 const rpmValue = document.querySelector("#rpmValue");
 const coolantValue = document.querySelector("#coolantValue");
 const speedValue = document.querySelector("#speedValue");
@@ -19,6 +22,13 @@ const PID_COMMANDS = {
   shortFuelTrimPct: "0106",
 };
 
+const CANDIDATE_BAUD_RATES = [38400, 115200, 9600, 57600, 19200];
+const ROBUST_SETTINGS = {
+  commandTimeoutMs: 1500,
+  maxReadFailuresBeforeReconnect: 3,
+  reconnectBackoffMs: 800,
+};
+
 const state = {
   port: null,
   reader: null,
@@ -31,6 +41,9 @@ const state = {
   latestFrame: null,
   useDemoMode: false,
   isBusy: false,
+  connectionProfile: null,
+  readFailures: 0,
+  autoRecovering: false,
 };
 
 boot();
@@ -44,10 +57,16 @@ function boot() {
   startButton.addEventListener("click", startPolling);
   stopButton.addEventListener("click", stopPolling);
   chatForm.addEventListener("submit", onChatSubmit);
+  updateAdapterProfile(null);
 
   if (!("serial" in navigator)) {
     state.useDemoMode = true;
     setStatus("Web Serial is unavailable. Running in demo telemetry mode.");
+    updateAdapterProfile({
+      adapterName: "Demo mode",
+      baudRate: "--",
+      protocolLabel: "simulation",
+    });
     startButton.disabled = false;
   }
 }
@@ -61,31 +80,42 @@ async function onConnectClick() {
 
   try {
     const port = await navigator.serial.requestPort();
-    await port.open({ baudRate: 38400 });
+    const profile = await connectWithAutoDetect(port);
     state.port = port;
-    state.writer = port.writable.getWriter();
-
-    const decoder = new TextDecoderStream();
-    port.readable.pipeTo(decoder.writable);
-    state.reader = decoder.readable.getReader();
-
-    await initializeElm327();
-    setStatus("Scanner connected. Ready to poll.");
+    state.connectionProfile = profile;
+    state.readFailures = 0;
+    updateAdapterProfile(profile);
+    setStatus(
+      `Scanner connected at ${profile.baudRate} baud (${profile.protocolLabel}). Ready to poll.`
+    );
     startButton.disabled = false;
     connectButton.disabled = true;
   } catch (error) {
     console.error(error);
     state.useDemoMode = true;
     startButton.disabled = false;
+    updateAdapterProfile({
+      adapterName: "Demo mode",
+      baudRate: "--",
+      protocolLabel: "simulation",
+    });
     setStatus("Could not connect scanner. Falling back to demo mode.");
   }
 }
 
 async function initializeElm327() {
-  const setup = ["ATZ", "ATE0", "ATL0", "ATS0", "ATH0", "ATSP0"];
+  const setup = [
+    "ATZ",
+    "ATE0",
+    "ATL0",
+    "ATS0",
+    "ATH0",
+    "ATCAF0",
+    "ATST64",
+    "ATSP0",
+  ];
   for (const command of setup) {
-    await sendElmCommand(command);
-    await readElmResponse(700);
+    await sendAndRead(command);
   }
 }
 
@@ -129,6 +159,7 @@ async function pollOnce() {
 
   try {
     const frame = state.useDemoMode ? demoFrame() : await liveFrame();
+    state.readFailures = 0;
     state.latestFrame = frame;
     state.telemetryFrames.push(frame);
     if (state.telemetryFrames.length > 40) {
@@ -137,7 +168,11 @@ async function pollOnce() {
     renderFrame(frame);
   } catch (error) {
     console.error(error);
+    state.readFailures += 1;
     setStatus("Read failed. Keeping last known values.");
+    if (!state.useDemoMode && state.readFailures >= ROBUST_SETTINGS.maxReadFailuresBeforeReconnect) {
+      await attemptAutoRecover();
+    }
   } finally {
     state.isBusy = false;
   }
@@ -189,7 +224,7 @@ async function readPid(command, decoder) {
 
 async function sendAndRead(command) {
   await sendElmCommand(command);
-  return readElmResponse(900);
+  return readElmResponse(ROBUST_SETTINGS.commandTimeoutMs);
 }
 
 async function sendElmCommand(command) {
@@ -216,7 +251,7 @@ async function readElmResponse(timeoutMs) {
       break;
     }
   }
-  return text.replace(/>/g, "").replace(/\r/g, " ").replace(/\n/g, " ").trim().toUpperCase();
+  return sanitizeElmResponse(text);
 }
 
 function decodeRpm(response) {
@@ -280,6 +315,161 @@ function parseDtcs(response) {
     codes.push(`${family}${d1}${d2}${d3}${d4}`);
   }
   return codes;
+}
+
+async function connectWithAutoDetect(port) {
+  let lastError;
+  for (const baudRate of CANDIDATE_BAUD_RATES) {
+    try {
+      await openPortStreams(port, baudRate);
+      await initializeElm327();
+      const adapterName = await readAdapterIdentity();
+      const protocolResponse = await sendAndRead("ATDP");
+      const protocolLabel = parseProtocolLabel(protocolResponse);
+      return { baudRate, protocolLabel, adapterName };
+    } catch (error) {
+      lastError = error;
+      await closeCurrentStreams(port);
+      await wait(connectionRetryJitterMs());
+    }
+  }
+  throw new Error(`Could not initialize scanner on common baud rates. Last error: ${lastError?.message || "unknown"}`);
+}
+
+async function readAdapterIdentity() {
+  const firstProbe = normalizeAdapterReply(await sendAndRead("ATI"));
+  const secondProbe = normalizeAdapterReply(await sendAndRead("ATI"));
+  if (!firstProbe || firstProbe !== secondProbe) {
+    throw new Error("Adapter did not return a stable identity reply.");
+  }
+
+  const labelProbe = normalizeAdapterReply(await sendAndRead("AT@1"));
+  return labelProbe || firstProbe;
+}
+
+function normalizeAdapterReply(value) {
+  if (!value) {
+    return "";
+  }
+  return value
+    .replace(/\s+/g, " ")
+    .replace(/OK/gi, "")
+    .trim()
+    .toUpperCase();
+}
+
+function sanitizeElmResponse(text) {
+  return text
+    .replace(/>/g, " ")
+    .replace(/\r/g, " ")
+    .replace(/\n/g, " ")
+    .replace(/\?/g, " ")
+    .replace(/SEARCHING\.\.\./gi, " ")
+    .replace(/STOPPED/gi, " ")
+    .replace(/BUS INIT: ?ERROR/gi, " ")
+    .replace(/CAN ERROR/gi, " ")
+    .replace(/BUFFER FULL/gi, " ")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
+}
+
+async function openPortStreams(port, baudRate) {
+  await port.open({ baudRate });
+  state.writer = port.writable.getWriter();
+  const decoder = new TextDecoderStream();
+  port.readable.pipeTo(decoder.writable).catch(() => {});
+  state.reader = decoder.readable.getReader();
+}
+
+async function closeCurrentStreams(port) {
+  try {
+    if (state.reader) {
+      await state.reader.cancel();
+      state.reader.releaseLock();
+      state.reader = null;
+    }
+  } catch (_err) {
+    // ignored: close path cleanup
+  }
+
+  try {
+    if (state.writer) {
+      state.writer.releaseLock();
+      state.writer = null;
+    }
+  } catch (_err) {
+    // ignored: close path cleanup
+  }
+
+  try {
+    if (port.readable || port.writable) {
+      await port.close();
+    }
+  } catch (_err) {
+    // ignored: close path cleanup
+  }
+}
+
+function parseProtocolLabel(response) {
+  if (!response) {
+    return "auto";
+  }
+  const cleaned = response
+    .replace(/^AUTO[, ]*/i, "")
+    .replace(/^A\d+\s*/i, "")
+    .trim();
+  return cleaned || "auto";
+}
+
+async function attemptAutoRecover() {
+  if (state.autoRecovering || !state.port) {
+    return;
+  }
+  state.autoRecovering = true;
+  setStatus("Scanner read unstable. Attempting automatic reconnection...");
+  try {
+    const preferredBaud = state.connectionProfile?.baudRate;
+    await closeCurrentStreams(state.port);
+    await wait(ROBUST_SETTINGS.reconnectBackoffMs);
+    const profile = await connectWithAutoDetect(state.port, preferredBaud);
+    state.connectionProfile = profile;
+    state.readFailures = 0;
+    updateAdapterProfile(profile);
+    setStatus(`Reconnected successfully at ${profile.baudRate} baud.`);
+  } catch (error) {
+    console.error(error);
+    setStatus("Auto-recovery failed. Reconnect scanner manually.");
+    stopPolling();
+  } finally {
+    state.autoRecovering = false;
+  }
+}
+
+function updateAdapterProfile(profile) {
+  if (!adapterNameValue || !adapterBaudValue || !adapterProtocolValue) {
+    return;
+  }
+
+  if (!profile) {
+    adapterNameValue.textContent = "Unknown";
+    adapterBaudValue.textContent = "--";
+    adapterProtocolValue.textContent = "--";
+    return;
+  }
+
+  adapterNameValue.textContent = profile.adapterName || "Unknown";
+  adapterBaudValue.textContent = String(profile.baudRate ?? "--");
+  adapterProtocolValue.textContent = profile.protocolLabel || "auto";
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function connectionRetryJitterMs() {
+  return 180 + Math.floor(Math.random() * 220);
 }
 
 function renderFrame(frame) {

@@ -75,6 +75,16 @@ h3 {
   flex-wrap: wrap;
 }
 
+.adapter-meta {
+  margin: 12px 0 0;
+  padding-left: 18px;
+  color: #9fb0c4;
+}
+
+.adapter-meta li {
+  margin-bottom: 6px;
+}
+
 button {
   border: 0;
   border-radius: 9px;

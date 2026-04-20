@@ -20,12 +20,21 @@
         <p class="muted">
           Browser support required: Web Serial API (Chromium-based browsers).
         </p>
+        <p class="muted">
+          Robust adapter profile enabled for clone ELM327 / INPA-style cables (including Taotao
+          B07L498NGZ variants).
+        </p>
         <div class="button-row">
           <button id="connectBtn">Connect Scanner</button>
           <button id="startBtn" disabled>Start Polling</button>
           <button id="stopBtn" disabled>Stop Polling</button>
         </div>
         <p id="connectionStatus" class="status">Disconnected</p>
+        <ul class="scanner-meta">
+          <li><span>Adapter:</span> <strong id="adapterName">Unknown</strong></li>
+          <li><span>Baud:</span> <strong id="adapterBaud">--</strong></li>
+          <li><span>Protocol:</span> <strong id="adapterProtocol">--</strong></li>
+        </ul>
       </section>
 
       <section class="card metrics-card">

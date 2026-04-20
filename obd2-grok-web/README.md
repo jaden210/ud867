@@ -5,6 +5,10 @@ This is a complete web app that connects to an OBD-II scanner, reads live engine
 ## What it does
 
 - Connects to ELM327-compatible scanners through the browser Web Serial API
+- Uses a robust adapter profile tailored for clone ELM327/INPA-style cables (including Taotao B07L498NGZ-like units):
+  - baud auto-detection across common rates
+  - noise-tolerant ELM response sanitization (`SEARCHING...`, `BUS INIT`, CAN noise)
+  - auto-recovery and reconnect after repeated read failures
 - Polls key PIDs continuously:
   - `010C` Engine RPM
   - `010D` Vehicle speed
@@ -70,5 +74,6 @@ Open: `http://localhost:3000`
 
 - Web Serial is available in Chromium-based browsers.
 - If Web Serial is unavailable (or scanner read fails), the app switches to a realistic demo telemetry mode so the proactive chat can still be used.
+- For Taotao/clone adapters, keep ignition in ON or engine RUN during initial connect so protocol auto-detect can complete reliably.
 - Use this for diagnostics support only; follow proper safety procedures when working around a running vehicle.
 
