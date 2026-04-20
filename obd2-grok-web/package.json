@@ -1,0 +1,21 @@
+{
+  "name": "@local/obd2-grok-web",
+  "version": "1.0.0",
+  "description": "OBD-II + Grok proactive diagnostic web app",
+  "main": "server.js",
+  "scripts": {
+    "dev": "nodemon server.js",
+    "start": "node server.js",
+    "test": "node --check server.js && node --check public/app.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}

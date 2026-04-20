@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OBD-II + Grok Proactive Diagnostics</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="page-header">
+      <h1>OBD-II + Grok Proactive Diagnostics</h1>
+      <p class="subtitle">
+        Connect your scanner, stream telemetry, and chat with proactive repair guidance.
+      </p>
+    </header>
+
+    <main class="layout">
+      <section class="card controls-card">
+        <h2>Scanner Connection</h2>
+        <p class="muted">
+          Browser support required: Web Serial API (Chromium-based browsers).
+        </p>
+        <div class="button-row">
+          <button id="connectBtn">Connect Scanner</button>
+          <button id="startBtn" disabled>Start Polling</button>
+          <button id="stopBtn" disabled>Stop Polling</button>
+        </div>
+        <p id="connectionStatus" class="status">Disconnected</p>
+      </section>
+
+      <section class="card metrics-card">
+        <h2>Live Telemetry</h2>
+        <div class="metrics-grid">
+          <div class="metric">
+            <span class="metric-label">RPM</span>
+            <span id="rpmValue" class="metric-value">--</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">Coolant Temp</span>
+            <span id="coolantValue" class="metric-value">--</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">Vehicle Speed</span>
+            <span id="speedValue" class="metric-value">--</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">Short Fuel Trim</span>
+            <span id="fuelTrimValue" class="metric-value">--</span>
+          </div>
+        </div>
+        <h3>Detected DTCs</h3>
+        <ul id="dtcList" class="dtc-list">
+          <li>No codes yet.</li>
+        </ul>
+      </section>
+
+      <section class="card chat-card">
+        <h2>Proactive Chat</h2>
+        <div id="chatLog" class="chat-log" aria-live="polite"></div>
+        <form id="chatForm" class="chat-form">
+          <input
+            id="chatInput"
+            name="chatInput"
+            type="text"
+            placeholder="Ask about symptoms, next checks, or repair priorities..."
+            autocomplete="off"
+            required
+          />
+          <button type="submit">Send</button>
+        </form>
+      </section>
+    </main>
+
+    <template id="chatMessageTemplate">
+      <article class="chat-message">
+        <p class="chat-role"></p>
+        <p class="chat-content"></p>
+      </article>
+    </template>
+
+    <script src="./app.js" type="module"></script>
+  </body>
+</html>
